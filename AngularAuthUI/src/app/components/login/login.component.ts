@@ -32,7 +32,7 @@ export class LoginComponent implements OnInit{
 
   onLogin(){
     if(this.loginForm.valid){
-      console.log(this.loginForm.value);
+      //console.log(this.loginForm.value);
 
       // Send form to database
       this.auth.login(this.loginForm.value)

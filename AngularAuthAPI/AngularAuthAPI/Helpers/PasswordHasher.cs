@@ -4,7 +4,8 @@ namespace AngularAuthAPI.Helpers
 {
     public class PasswordHasher
     {
-        private static RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider();
+        // В комментария пишут, что RNGCryptoServiceProvider устарел. Автор подтвертил
+        private static RNGCryptoServiceProvider rng = new RNGCryptoServiceProvider(); 
         private static readonly int SaltSize = 16;
         private static readonly int HashSize = 20;
         private static readonly int Iterations = 10000;

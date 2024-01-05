@@ -10,7 +10,20 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
-//Connect DB
+
+// Connect Angular to .NET API
+builder.Services.AddCors(option =>
+{
+    option.AddPolicy("MyPolicy", builder =>
+    {
+        builder.AllowAnyOrigin()
+        .AllowAnyMethod()
+        .AllowAnyHeader();
+    });
+});
+
+
+// Connect DB
 builder.Services.AddDbContext<AppDbContext>(option =>
 {
     option.UseSqlServer(builder.Configuration.GetConnectionString("SqlServerConnStr"));
@@ -27,6 +40,13 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+
+// Connect Angular to .NET API
+app.UseCors("MyPolicy");
+app.UseAuthentication();
+
+
 
 app.UseAuthorization();
 

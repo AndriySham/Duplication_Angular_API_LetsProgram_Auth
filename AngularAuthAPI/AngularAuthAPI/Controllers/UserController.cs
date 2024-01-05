@@ -1,4 +1,5 @@
 ﻿using AngularAuthAPI.Context;
+using AngularAuthAPI.Helpers;
 using AngularAuthAPI.Models;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -25,8 +26,8 @@ namespace AngularAuthAPI.Controllers
                 return BadRequest();
             }
 
-            var user = await _authContext.Users
-                .FirstOrDefaultAsync(x => x.Username == userObj.Username && x.Password == userObj.Password);
+            var user = await _authContext.Users.FirstOrDefaultAsync(x => 
+                        x.Username == userObj.Username && x.Password == userObj.Password);
             if (user == null)
             {
                 return NotFound(new { Message = "User Not Found!" });
@@ -46,6 +47,10 @@ namespace AngularAuthAPI.Controllers
                 return BadRequest();
             }
 
+            userObj.Password = PasswordHasher.HashPassword(userObj.Password);
+            userObj.Role = "User";
+            userObj.Token = "";
+
             await _authContext.Users.AddAsync(userObj);
             await _authContext.SaveChangesAsync();
             return Ok(new
@@ -53,6 +58,5 @@ namespace AngularAuthAPI.Controllers
                 Message = "User Registered!"
             });
         }
-
     }
 }

@@ -6,8 +6,9 @@ import { AppComponent } from './app.component';
 import { LoginComponent } from './components/login/login.component';
 import { SignupComponent } from './components/signup/signup.component';
 import { ReactiveFormsModule } from '@angular/forms';
-import { HttpClientModule } from '@angular/common/http';
+import { HTTP_INTERCEPTORS, HttpClientModule } from '@angular/common/http';
 import { DashboardComponent } from './components/dashboard/dashboard.component';
+import { TokenInterceptor } from './interceptors/token.interceptor';
 
 @NgModule({
   declarations: [
@@ -22,7 +23,11 @@ import { DashboardComponent } from './components/dashboard/dashboard.component';
     ReactiveFormsModule, /* Validation */
     HttpClientModule /* Conntct with .NET API */
   ],
-  providers: [],
+  providers: [{
+    provide: HTTP_INTERCEPTORS, /* Implement Intepceptor (Get data  from backend) */
+    useClass: TokenInterceptor, /* Implement Intepceptor (Get data  from backend) */
+    multi: true /* Implement Intepceptor (Get data  from backend) */
+  }],
   bootstrap: [AppComponent]
 })
 export class AppModule { }

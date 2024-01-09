@@ -13,7 +13,7 @@ export class LoginComponent implements OnInit{
   type: string = "password";
   isText: boolean = false;
   eyeIcon: string = "fa-eye-slash";
-  loginForm!: FormGroup;
+  public loginForm!: FormGroup;
 
   constructor(private fb: FormBuilder, private auth: AuthService, private router: Router){}
 
@@ -38,6 +38,9 @@ export class LoginComponent implements OnInit{
       this.auth.login(this.loginForm.value)
         .subscribe({
           next:(res)=>{
+            console.log(res.message);
+            this.loginForm.reset();
+            this.auth.storeToken(res.token); // for implement guard
             alert(res.message);
             this.router.navigate(['dashboard']);
           },

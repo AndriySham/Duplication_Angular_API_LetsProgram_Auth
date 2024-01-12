@@ -1,6 +1,7 @@
 ﻿using AngularAuthAPI.Context;
 using AngularAuthAPI.Helpers;
 using AngularAuthAPI.Models;
+using AngularAuthAPI.Models.Dto;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -8,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -32,23 +34,28 @@ namespace AngularAuthAPI.Controllers
                 return BadRequest();
             }
 
-            var user = await _authContext.Users.FirstOrDefaultAsync(x => x.Username == userObj.Username );
+            var user = await _authContext.Users.FirstOrDefaultAsync(x => x.Username == userObj.Username);
             if (user == null)
             {
                 return NotFound(new { Message = "User Not Found!" });
             }
 
-            if(!PasswordHasher.VerifyPassword(userObj.Password, user.Password))
+            if (!PasswordHasher.VerifyPassword(userObj.Password, user.Password))
             {
                 return BadRequest(new { Message = "Password is Incorrect" });
             }
 
             user.Token = CreateJwt(user);
+            var newAccessToken = user.Token;
+            var newRefreshToken = CreateRefreshToken();
+            user.RefreshToken = newRefreshToken;
+            user.RefreshTokenExpiryTime = DateTime.Now.AddDays(5);
+            await _authContext.SaveChangesAsync();
 
-            return Ok(new
+            return Ok(new TokenAppDto()
             {
-                Token = user.Token,
-                Message = "Login Success!"
+                AccessToken = newAccessToken,
+                RefreshToken = newRefreshToken
             });
         }
 
@@ -61,7 +68,7 @@ namespace AngularAuthAPI.Controllers
             }
 
             // Check username
-            if(await CheckUserNameExistAsync(userObj.Username))
+            if (await CheckUserNameExistAsync(userObj.Username))
                 return BadRequest(new { Message = "Username Already Exist!" });
 
             // Check email
@@ -70,7 +77,7 @@ namespace AngularAuthAPI.Controllers
 
             // Check password strength
             var pass = CheckPasswordStrength(userObj.Password);
-            if(!string.IsNullOrEmpty(pass)) 
+            if (!string.IsNullOrEmpty(pass))
                 return BadRequest(new { Message = pass.ToString() });
 
             userObj.Password = PasswordHasher.HashPassword(userObj.Password);
@@ -99,12 +106,12 @@ namespace AngularAuthAPI.Controllers
         {
             StringBuilder sb = new StringBuilder();
 
-            if(password.Length < 2)
+            if (password.Length < 2)
                 sb.Append("Minimum password length should be 2" + Environment.NewLine);
             if (!(Regex.IsMatch(password, "[a-z]") && Regex.IsMatch(password, "[A-Z]") &&
                 Regex.IsMatch(password, "[0-9]")))
                 sb.Append("Password should be Alpanumeric" + Environment.NewLine);
-            if(!(Regex.IsMatch(password, "[<,>,@,!,#,$,%,^,&,*,(,),+,\\[,\\],{,},?,:,;,|,',\\,.,/,~,`,-,=]")))
+            if (!(Regex.IsMatch(password, "[<,>,@,!,#,$,%,^,&,*,(,),+,\\[,\\],{,},?,:,;,|,',\\,.,/,~,`,-,=]")))
                 sb.Append("Password should contain special chars" + Environment.NewLine);
 
             return sb.ToString();
@@ -117,7 +124,7 @@ namespace AngularAuthAPI.Controllers
             var identity = new ClaimsIdentity(new Claim[]
             {
                 new Claim(ClaimTypes.Role, user.Role),
-                new Claim(ClaimTypes.Name, $"{user.FirstName} {user.LastName}")
+                new Claim(ClaimTypes.Name, $"{user.Username}")
             });
 
             var credentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256);
@@ -125,11 +132,48 @@ namespace AngularAuthAPI.Controllers
             var tokenDescriptor = new SecurityTokenDescriptor
             {
                 Subject = identity,
-                Expires = DateTime.Now.AddDays(1),
+                Expires = DateTime.Now.AddSeconds(10),
                 SigningCredentials = credentials
             };
             var token = jwtTokenHandler.CreateToken(tokenDescriptor);
             return jwtTokenHandler.WriteToken(token);
+        }
+
+        private string CreateRefreshToken()
+        {
+            var tokenBytes = RandomNumberGenerator.GetBytes(64);
+            var refreshToken = Convert.ToBase64String(tokenBytes);
+
+            var tokenInUser = _authContext.Users
+                .Any(a => a.RefreshToken == refreshToken);
+            if (tokenInUser)
+            {
+                return CreateRefreshToken();
+            }
+            return refreshToken;
+        }
+
+        private ClaimsPrincipal GetPrincipleFromExpiredToken(string token)
+        {
+            var key = Encoding.ASCII.GetBytes("veryverysecret.....long key...very long key");
+            var tokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateAudience = false,
+                ValidateIssuer = false,
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(key),
+                ValidateLifetime = false
+            };
+            var tokenHandler = new JwtSecurityTokenHandler();
+            SecurityToken securityToken;
+            var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out securityToken);
+            var jwtSecurityToken = securityToken as JwtSecurityToken;
+            if (jwtSecurityToken == null || !jwtSecurityToken.Header.Alg.Equals(
+                SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
+            {
+                throw new SecurityTokenException("This is Invalid Token!");
+            }
+            return principal;
         }
 
         [Authorize] // Let protect data from UNauthorized users
@@ -137,6 +181,33 @@ namespace AngularAuthAPI.Controllers
         public async Task<ActionResult<User>> GetAllUsers()
         {
             return Ok(await _authContext.Users.ToListAsync());
+        }
+
+        [HttpPost("refresh")]
+        public async Task<IActionResult> Refresh(TokenAppDto tokenAppDto)
+        {
+            if(tokenAppDto is null)
+            {
+                return BadRequest("Invalid Client Request");
+            }
+            string accessToken = tokenAppDto.AccessToken;
+            string refreshToken = tokenAppDto.RefreshToken;
+            var principal = GetPrincipleFromExpiredToken(accessToken);
+            var username = principal.Identity.Name;
+            var user = await _authContext.Users.FirstOrDefaultAsync(u => u.Username == username);
+            if (user == null || user.RefreshToken != refreshToken || user.RefreshTokenExpiryTime <= DateTime.Now)
+            {
+                return BadRequest("Invalid Request");
+            }
+            var newAccessToken = CreateJwt(user);
+            var newRefreshToken = CreateRefreshToken();
+            user.RefreshToken = newRefreshToken;
+            await _authContext.SaveChangesAsync();
+            return Ok(new TokenAppDto()
+            {
+                AccessToken = newAccessToken,
+                RefreshToken = newRefreshToken
+            });
         }
     }
 }
